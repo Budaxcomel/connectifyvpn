@@ -35,10 +35,10 @@ Button.url("ORDER SCRIPT","https://t.me/ConnectifyVPNBot")]]
 		z = subprocess.check_output(ver, shell=True).decode("ascii")
 		sc = f""" 
 IPVPS=$(curl -s ipv4.icanhazip.com)
-Exp=$(wget -qO- https://raw.githubusercontent.com/Budaxcomel/izinvps/ipuk/ip | grep $IPVPS | cut -d ' ' -f 3)
+Exp=$(wget -qO-  | grep $IPVPS | cut -d ' ' -f 3)
 data_server=$(curl -v --insecure --silent https://google.com/ 2>&1 | grep Date | sed -e 's/< Date: //')
 date_list=$(date +"%Y-%m-%d" -d "$data_server")
-data_ip="https://raw.githubusercontent.com/Budaxcomel/izinvps/ipuk/ip"
+data_ip=""
 d2=$(date -d "$date_list" +"+%s")
 d1=$(date -d "$Exp" +"+%s")
 dayleft=$(( ($d1 - $d2) / 86400 ))

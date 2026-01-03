@@ -10,11 +10,11 @@
 ```bash
 apt update && apt upgrade -y
 apt install -y git curl wget unzip jq
-git clone https://github.com/<OWNER>/<REPO>.git
-cd <REPO>
+git clone https://github.com/Budaxcomel/cvpn.git
+cd cvpn
 
 # Installer akan auto set PERMISSION_URL berdasarkan repo Git anda
-sudo bash install-connectifyvpn.sh
+sudo bash install-cvpn.sh
 ```
 
 ## Sistem Kebenaran Langganan (Remote Whitelist)

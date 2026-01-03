@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ConnectifyVPN - Tambah IP ke whitelist (untuk langganan bulanan)
+# Ini akan kemas kini fail whitelist di repo GitHub anda berdasarkan PERMISSION_URL.
+#
+# Keperluan:
+# - /etc/connectifyvpn/permission.conf mesti ada PERMISSION_URL (auto dibuat selepas install jika berjaya detect)
+# - Git perlu dipasang
+# - Token GitHub untuk push (simpan di /etc/connectifyvpn/github_token atau export GITHUB_TOKEN)
+#
+# Format whitelist (disyorkan):
+#   <IP> <USERNAME> <YYYY-MM-DD>
+
+CONF="/etc/connectifyvpn/permission.conf"
+TOKEN_FILE="/etc/connectifyvpn/github_token"
+
+if [[ -f "$CONF" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONF"
+fi
+
+PERMISSION_URL="${PERMISSION_URL:-}"
+if [[ -z "$PERMISSION_URL" ]]; then
+  echo "Ralat: PERMISSION_URL tidak dijumpai. Sila semak $CONF"
+  exit 1
+fi
+
+# Baca input (boleh dipipe)
+read -r -p "USERNAME : " user
+read -r -p "IP VPS   : " ipvps
+read -r -p "TAMAT (hari) : " masaaktif
+
+if [[ ! "$ipvps" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Ralat: IP tidak sah."
+  exit 1
+fi
+if [[ ! "$masaaktif" =~ ^[0-9]+$ ]]; then
+  echo "Ralat: Tempoh (hari) mesti nombor."
+  exit 1
+fi
+
+# Parse raw URL: https://raw.githubusercontent.com/OWNER/REPO/BRANCH/PATH
+if [[ ! "$PERMISSION_URL" =~ ^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$ ]]; then
+  echo "Ralat: PERMISSION_URL tidak sah."
+  exit 1
+fi
+OWNER="${BASH_REMATCH[1]}"
+REPO="${BASH_REMATCH[2]}"
+BRANCH="${BASH_REMATCH[3]}"
+FILE_PATH="${BASH_REMATCH[4]}"
+
+GIT_URL="https://github.com/${OWNER}/${REPO}.git"
+
+TOKEN="${GITHUB_TOKEN:-}"
+if [[ -z "$TOKEN" && -f "$TOKEN_FILE" ]]; then
+  TOKEN="$(cat "$TOKEN_FILE" | tr -d ' \t\r\n')"
+fi
+if [[ -z "$TOKEN" ]]; then
+  echo "Ralat: Token GitHub tidak dijumpai."
+  echo "Sila set: export GITHUB_TOKEN=xxxx  atau simpan token di $TOKEN_FILE (chmod 600)."
+  exit 1
+fi
+
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+git clone -q -b "$BRANCH" --single-branch "$GIT_URL" "$TMPDIR/repo"
+
+TARGET="$TMPDIR/repo/$FILE_PATH"
+mkdir -p "$(dirname "$TARGET")"
+
+# Cipta fail jika belum wujud
+if [[ ! -f "$TARGET" ]]; then
+  cat >"$TARGET" <<EOF
+# IP USERNAME EXPIRY(YYYY-MM-DD)
+EOF
+fi
+
+EXP="$(date -d "$masaaktif days" +"%Y-%m-%d")"
+
+# Buang entry IP sedia ada (jika ada), kemudian tambah yang baru
+grep -vE "^[[:space:]]*${ipvps}([[:space:]]+|\\|)" "$TARGET" >"$TARGET.tmp" || true
+mv -f "$TARGET.tmp" "$TARGET"
+echo "${ipvps} ${user} ${EXP}" >>"$TARGET"
+
+cd "$TMPDIR/repo"
+git add "$FILE_PATH"
+git -c user.name="ConnectifyVPN" -c user.email="connectifyvpn@local" commit -q -m "Permit: ${ipvps} (${user}) ${EXP}" || true
+
+# Push dengan token (tanpa simpan token dalam git config global)
+git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${OWNER}/${REPO}.git"
+git push -q origin "$BRANCH"
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ VPS berjaya dimasukkan ke whitelist"
+echo "Nama   : $user"
+echo "IP VPS : $ipvps"
+echo "Tamat  : $EXP"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

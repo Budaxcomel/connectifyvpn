@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ConnectifyVPN - Padam IP dari whitelist
+CONF="/etc/connectifyvpn/permission.conf"
+TOKEN_FILE="/etc/connectifyvpn/github_token"
+
+if [[ -f "$CONF" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONF"
+fi
+
+PERMISSION_URL="${PERMISSION_URL:-}"
+if [[ -z "$PERMISSION_URL" ]]; then
+  echo "Ralat: PERMISSION_URL tidak dijumpai. Sila semak $CONF"
+  exit 1
+fi
+
+read -r -p "IP VPS : " ipvps
+
+if [[ ! "$ipvps" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Ralat: IP tidak sah."
+  exit 1
+fi
+
+if [[ ! "$PERMISSION_URL" =~ ^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$ ]]; then
+  echo "Ralat: PERMISSION_URL tidak sah."
+  exit 1
+fi
+OWNER="${BASH_REMATCH[1]}"
+REPO="${BASH_REMATCH[2]}"
+BRANCH="${BASH_REMATCH[3]}"
+FILE_PATH="${BASH_REMATCH[4]}"
+
+GIT_URL="https://github.com/${OWNER}/${REPO}.git"
+
+TOKEN="${GITHUB_TOKEN:-}"
+if [[ -z "$TOKEN" && -f "$TOKEN_FILE" ]]; then
+  TOKEN="$(cat "$TOKEN_FILE" | tr -d ' \t\r\n')"
+fi
+if [[ -z "$TOKEN" ]]; then
+  echo "Ralat: Token GitHub tidak dijumpai."
+  echo "Sila set: export GITHUB_TOKEN=xxxx  atau simpan token di $TOKEN_FILE (chmod 600)."
+  exit 1
+fi
+
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+git clone -q -b "$BRANCH" --single-branch "$GIT_URL" "$TMPDIR/repo"
+
+TARGET="$TMPDIR/repo/$FILE_PATH"
+if [[ ! -f "$TARGET" ]]; then
+  echo "Ralat: Fail whitelist tidak wujud di repo: $FILE_PATH"
+  exit 1
+fi
+
+before="$(grep -cE "^[[:space:]]*${ipvps}([[:space:]]+|\\|)" "$TARGET" || true)"
+if [[ "$before" -eq 0 ]]; then
+  echo "IP ini tiada dalam whitelist."
+  exit 1
+fi
+
+grep -vE "^[[:space:]]*${ipvps}([[:space:]]+|\\|)" "$TARGET" >"$TARGET.tmp" || true
+mv -f "$TARGET.tmp" "$TARGET"
+
+cd "$TMPDIR/repo"
+git add "$FILE_PATH"
+git -c user.name="ConnectifyVPN" -c user.email="connectifyvpn@local" commit -q -m "Permit: remove ${ipvps}" || true
+
+git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${OWNER}/${REPO}.git"
+git push -q origin "$BRANCH"
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ VPS berjaya dipadam dari whitelist"
+echo "IP VPS : $ipvps"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -1,0 +1,79 @@
+#!/bin/bash
+set -euo pipefail
+
+# ConnectifyVPN - Installer Bot Registrasi (Whitelist)
+# Bot ini digunakan untuk tambah/padam IP whitelist melalui Telegram.
+
+# ─────────────────────────────────────────────────────────────
+# Semakan kebenaran langganan (remote whitelist)
+# ─────────────────────────────────────────────────────────────
+PERM_LIB="/opt/connectifyvpn/lib/permission.sh"
+if [[ -f "$PERM_LIB" ]]; then
+  # shellcheck disable=SC1090
+  source "$PERM_LIB"
+  permission_check_or_exit "/opt/connectifyvpn"
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "   PASANG BOT REGISTRASI WHITELIST (TELEGRAM)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Anda perlukan:"
+echo "  1) Bot Token dari @BotFather"
+echo "  2) ID Telegram Admin"
+echo "  3) Telegram API ID & API HASH (https://my.telegram.org)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+read -r -p "Bot Token : " bottoken
+read -r -p "ID Telegram Admin : " admin
+read -r -p "Telegram API ID : " api_id
+read -r -p "Telegram API HASH : " api_hash
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y >/dev/null 2>&1 || true
+apt-get install -y python3 python3-pip git curl >/dev/null 2>&1 || true
+
+pip3 install telethon >/dev/null 2>&1 || true
+
+# Salin fail bot dari repo lokal (selepas install, folder ini wujud)
+SRC="/opt/connectifyvpn/regis/regis"
+DST="/root/regis"
+
+if [[ ! -d "$SRC" ]]; then
+  echo "Ralat: folder sumber tidak dijumpai: $SRC"
+  echo "Pastikan ConnectifyVPN sudah dipasang."
+  exit 1
+fi
+
+rm -rf "$DST"
+mkdir -p "$DST"
+cp -a "$SRC" "$DST/regis"
+
+cat >"$DST/regis/var.txt" <<EOF
+BOT_TOKEN="${bottoken}"
+ADMIN="${admin}"
+API_ID="${api_id}"
+API_HASH="${api_hash}"
+TG_SESSION="connectifyvpn"
+EOF
+
+cat >/etc/systemd/system/connectifyvpn-regis.service <<'END'
+[Unit]
+Description=ConnectifyVPN - Telegram Whitelist Bot
+After=network.target
+
+[Service]
+WorkingDirectory=/root/regis
+ExecStart=python3 -m regis
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+END
+
+systemctl daemon-reload
+systemctl enable --now connectifyvpn-regis >/dev/null 2>&1 || true
+systemctl restart connectifyvpn-regis >/dev/null 2>&1 || true
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "✅ Bot whitelist berjaya dipasang."
+echo "Semak status: systemctl status connectifyvpn-regis"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
